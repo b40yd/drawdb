@@ -1,23 +1,23 @@
-import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
 import { IconCrossStroked } from "@douyinfe/semi-icons";
-import SimpleCanvas from "../components/SimpleCanvas";
-import Navbar from "../components/Navbar";
-import { diagram } from "../data/heroDiagram";
-import mysql_icon from "../assets/mysql.png";
-import postgres_icon from "../assets/postgres.png";
-import sqlite_icon from "../assets/sqlite.png";
-import mariadb_icon from "../assets/mariadb.png";
-import oraclesql_icon from "../assets/oraclesql.png";
-import sql_server_icon from "../assets/sql-server.png";
+import axios from "axios";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { Tweet } from "react-tweet";
+import FadeIn from "../animations/FadeIn";
 import discord from "../assets/discord.png";
 import github from "../assets/github.png";
+import mariadb_icon from "../assets/mariadb.png";
+import mysql_icon from "../assets/mysql.png";
+import oraclesql_icon from "../assets/oraclesql.png";
+import postgres_icon from "../assets/postgres.png";
 import screenshot from "../assets/screenshot.png";
-import FadeIn from "../animations/FadeIn";
-import axios from "axios";
-import { languages } from "../i18n/i18n";
-import { Tweet } from "react-tweet";
+import sql_server_icon from "../assets/sql-server.png";
+import sqlite_icon from "../assets/sqlite.png";
+import Navbar from "../components/Navbar";
+import SimpleCanvas from "../components/SimpleCanvas";
+import { diagram } from "../data/heroDiagram";
 import { socials } from "../data/socials";
+import { languages } from "../i18n/i18n";
 
 function shortenNumber(number) {
   if (number < 1000) return number;
@@ -203,22 +203,6 @@ export default function LandingPage() {
         </FadeIn>
       </div>
 
-      {/* Tweets */}
-      <div className="px-40 mt-6 md:px-8">
-        <div className="text-center text-2xl md:text-xl font-medium">
-          What the internet says about us
-        </div>
-        <div
-          data-theme="light"
-          className="grid grid-cols-2 place-items-center md:grid-cols-1"
-        >
-          <Tweet id="1816111365125218343" />
-          <Tweet id="1817933406337905021" />
-          <Tweet id="1785457354777006524" />
-          <Tweet id="1776842268042756248" />
-        </div>
-      </div>
-
       {/* Contact us */}
       <svg
         viewBox="0 0 1440 54"
@@ -252,19 +236,6 @@ export default function LandingPage() {
                 <img src={github} className="h-8" />
                 <div className="text-lg text-white font-bold">
                   See the source
-                </div>
-              </div>
-            </a>
-            <a
-              className="inline-block"
-              href={socials.discord}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <div className="bg-[#5865f2] hover:opacity-90 transition-all duration-300 flex items-center gap-4 px-8 py-4 rounded-lg">
-                <img src={discord} className="h-8" />
-                <div className="text-lg text-white font-bold">
-                  Join us on Discord
                 </div>
               </div>
             </a>

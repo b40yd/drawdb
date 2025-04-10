@@ -12,13 +12,10 @@ export default function NotFound() {
           docs
         </a>
         ,{" "}
-        <a className="text-blue-600" href="mailto:drawdb@outlook.com">
+        <a className="text-blue-600" href="mailto:bb.qnyd@gmail.com">
           shoot us an email
         </a>{" "}
         or{" "}
-        <a className="text-blue-600" href={socials.discord}>
-          a message on discord
-        </a>
       </p>
       <br />
       <p className="opacity-70">
