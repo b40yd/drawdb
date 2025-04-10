@@ -1,8 +1,8 @@
+import { IconMenu } from "@douyinfe/semi-icons";
+import { SideSheet } from "@douyinfe/semi-ui";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import logo from "../assets/logo_light_160.png";
-import { SideSheet } from "@douyinfe/semi-ui";
-import { IconMenu } from "@douyinfe/semi-icons";
 import { socials } from "../data/socials";
 
 export default function Navbar() {
@@ -63,15 +63,6 @@ export default function Navbar() {
               rel="noreferrer"
             >
               <i className="opacity-70 bi bi-twitter-x" />
-            </a>
-            <a
-              title="Join the community on Discord"
-              className="px-2 py-2 hover:opacity-60 transition-all duration-300 rounded-full text-2xl"
-              href={socials.discord}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <i className="opacity-70 bi bi-discord" />
             </a>
           </div>
         </div>
