@@ -43,6 +43,7 @@ import {
   DB,
   IMPORT_FROM,
   noteWidth,
+  pngExportPixelRatio,
 } from "../../data/constants";
 import jsPDF from "jspdf";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -62,6 +63,7 @@ import {
   useAreas,
   useEnums,
   useFullscreen,
+  useTasks,
 } from "../../hooks";
 import { enterFullscreen, exitFullscreen } from "../../utils/fullscreen";
 import { dataURItoBlob } from "../../utils/utils";
@@ -81,7 +83,9 @@ import { toDBML } from "../../utils/exportAs/dbml";
 import { exportSavedData } from "../../utils/exportSavedData";
 import { nanoid } from "nanoid";
 import { getTableHeight } from "../../utils/utils";
-
+import { deleteFromCache, STORAGE_KEY } from "../../utils/cache";
+import { useLiveQuery } from "dexie-react-hooks";
+import { DateTime } from "luxon";
 export default function ControlPanel({
   diagramId,
   setDiagramId,
@@ -116,6 +120,7 @@ export default function ControlPanel({
     deleteRelationship,
     updateRelationship,
     database,
+    setDatabase,
   } = useDiagram();
   const { enums, setEnums, deleteEnum, addEnum, updateEnum } = useEnums();
   const { types, addType, deleteType, updateType, setTypes } = useTypes();
@@ -125,7 +130,7 @@ export default function ControlPanel({
   const { selectedElement, setSelectedElement } = useSelect();
   const { transform, setTransform } = useTransform();
   const { t, i18n } = useTranslation();
-  const { setGistId } = useContext(IdContext);
+  const { version, gistId, setGistId } = useContext(IdContext);
   const navigate = useNavigate();
 
   const invertLayout = (component) =>
@@ -152,17 +157,17 @@ export default function ControlPanel({
 
     if (a.action === Action.ADD) {
       if (a.element === ObjectType.TABLE) {
-        deleteTable(a.id, false);
+        deleteTable(a.data.table.id, false);
       } else if (a.element === ObjectType.AREA) {
         deleteArea(areas[areas.length - 1].id, false);
       } else if (a.element === ObjectType.NOTE) {
         deleteNote(notes[notes.length - 1].id, false);
       } else if (a.element === ObjectType.RELATIONSHIP) {
-        deleteRelationship(a.data.id, false);
+        deleteRelationship(a.data.relationship.id, false);
       } else if (a.element === ObjectType.TYPE) {
-        deleteType(types.length - 1, false);
+        deleteType(a.data.type.id, false);
       } else if (a.element === ObjectType.ENUM) {
-        deleteEnum(enums.length - 1, false);
+        deleteEnum(a.data.enum.id, false);
       }
       setRedoStack((prev) => [...prev, a]);
     } else if (a.action === Action.MOVE) {
@@ -186,7 +191,7 @@ export default function ControlPanel({
     } else if (a.action === Action.DELETE) {
       if (a.element === ObjectType.TABLE) {
         a.data.relationship.forEach((x) => addRelationship(x, false));
-        addTable(a.data.table, false);
+        addTable(a.data, false);
       } else if (a.element === ObjectType.RELATIONSHIP) {
         addRelationship(a.data, false);
       } else if (a.element === ObjectType.NOTE) {
@@ -194,9 +199,9 @@ export default function ControlPanel({
       } else if (a.element === ObjectType.AREA) {
         addArea(a.data, false);
       } else if (a.element === ObjectType.TYPE) {
-        addType({ id: a.id, ...a.data }, false);
+        addType(a.data, false);
       } else if (a.element === ObjectType.ENUM) {
-        addEnum({ id: a.id, ...a.data }, false);
+        addEnum(a.data, false);
       }
       setRedoStack((prev) => [...prev, a]);
     } else if (a.action === Action.EDIT) {
@@ -253,9 +258,12 @@ export default function ControlPanel({
         updateRelationship(a.rid, a.undo);
       } else if (a.element === ObjectType.TYPE) {
         if (a.component === "field_add") {
+          const type = types.find((t, i) =>
+            typeof a.tid === "number" ? i === a.tid : t.id === a.tid,
+          );
           updateType(a.tid, {
-            fields: types[a.tid].fields.filter(
-              (_, i) => i !== types[a.tid].fields.length - 1,
+            fields: type.fields.filter((f, i) =>
+              f.id ? f.id !== a.data.field.id : i !== type.fields.length - 1,
             ),
           });
         }
@@ -321,7 +329,7 @@ export default function ControlPanel({
 
     if (a.action === Action.ADD) {
       if (a.element === ObjectType.TABLE) {
-        addTable(null, false);
+        addTable(a.data, false);
       } else if (a.element === ObjectType.AREA) {
         addArea(null, false);
       } else if (a.element === ObjectType.NOTE) {
@@ -329,9 +337,9 @@ export default function ControlPanel({
       } else if (a.element === ObjectType.RELATIONSHIP) {
         addRelationship(a.data, false);
       } else if (a.element === ObjectType.TYPE) {
-        addType(null, false);
+        addType(a.data, false);
       } else if (a.element === ObjectType.ENUM) {
-        addEnum(null, false);
+        addEnum(a.data, false);
       }
       setUndoStack((prev) => [...prev, a]);
     } else if (a.action === Action.MOVE) {
@@ -356,15 +364,15 @@ export default function ControlPanel({
       if (a.element === ObjectType.TABLE) {
         deleteTable(a.data.table.id, false);
       } else if (a.element === ObjectType.RELATIONSHIP) {
-        deleteRelationship(a.data.id, false);
+        deleteRelationship(a.data.relationship.id, false);
       } else if (a.element === ObjectType.NOTE) {
         deleteNote(a.data.id, false);
       } else if (a.element === ObjectType.AREA) {
         deleteArea(a.data.id, false);
       } else if (a.element === ObjectType.TYPE) {
-        deleteType(a.id, false);
+        deleteType(a.data.type.id, false);
       } else if (a.element === ObjectType.ENUM) {
-        deleteEnum(a.id, false);
+        deleteEnum(a.data.enum.id, false);
       }
       setUndoStack((prev) => [...prev, a]);
     } else if (a.action === Action.EDIT) {
@@ -431,14 +439,11 @@ export default function ControlPanel({
         updateRelationship(a.rid, a.redo);
       } else if (a.element === ObjectType.TYPE) {
         if (a.component === "field_add") {
+          const type = types.find((t, i) =>
+            typeof a.tid === "number" ? i === a.tid : t.id === a.tid,
+          );
           updateType(a.tid, {
-            fields: [
-              ...types[a.tid].fields,
-              {
-                name: "",
-                type: "",
-              },
-            ],
+            fields: [...type.fields, a.data.field],
           });
         } else if (a.component === "field") {
           updateType(a.tid, {
@@ -493,7 +498,9 @@ export default function ControlPanel({
     }));
   };
   const copyAsImage = () => {
-    toPng(document.getElementById("canvas")).then(function (dataUrl) {
+    toPng(document.getElementById("canvas"), {
+      pixelRatio: pngExportPixelRatio,
+    }).then(function (dataUrl) {
       const blob = dataURItoBlob(dataUrl);
       navigator.clipboard
         .write([new ClipboardItem({ "image/png": blob })])
@@ -534,7 +541,10 @@ export default function ControlPanel({
     notes.forEach((note) => {
       minMaxXY.minX = Math.min(minMaxXY.minX, note.x);
       minMaxXY.minY = Math.min(minMaxXY.minY, note.y);
-      minMaxXY.maxX = Math.max(minMaxXY.maxX, note.x + noteWidth);
+      minMaxXY.maxX = Math.max(
+        minMaxXY.maxX,
+        note.x + (note.width ?? noteWidth),
+      );
       minMaxXY.maxY = Math.max(minMaxXY.maxY, note.y + note.height);
     });
 
@@ -612,6 +622,9 @@ export default function ControlPanel({
     }
   };
   const del = () => {
+    if (layout.readonly) {
+      return;
+    }
     switch (selectedElement.element) {
       case ObjectType.TABLE:
         deleteTable(selectedElement.id);
@@ -627,14 +640,19 @@ export default function ControlPanel({
     }
   };
   const duplicate = () => {
+    if (layout.readonly) {
+      return;
+    }
     switch (selectedElement.element) {
       case ObjectType.TABLE: {
         const copiedTable = tables.find((t) => t.id === selectedElement.id);
         addTable({
-          ...copiedTable,
-          x: copiedTable.x + 20,
-          y: copiedTable.y + 20,
-          id: nanoid(),
+          table: {
+            ...copiedTable,
+            x: copiedTable.x + 20,
+            y: copiedTable.y + 20,
+            id: nanoid(),
+          },
         });
         break;
       }
@@ -682,6 +700,9 @@ export default function ControlPanel({
     }
   };
   const paste = () => {
+    if (layout.readonly) {
+      return;
+    }
     navigator.clipboard.readText().then((text) => {
       let obj = null;
       try {
@@ -692,10 +713,12 @@ export default function ControlPanel({
       const v = new Validator();
       if (v.validate(obj, tableSchema).valid) {
         addTable({
-          ...obj,
-          x: obj.x + 20,
-          y: obj.y + 20,
-          id: nanoid(),
+          table: {
+            ...obj,
+            x: obj.x + 20,
+            y: obj.y + 20,
+            id: nanoid(),
+          },
         });
       } else if (v.validate(obj, areaSchema).valid) {
         addArea({
@@ -715,6 +738,9 @@ export default function ControlPanel({
     });
   };
   const cut = () => {
+    if (layout.readonly) {
+      return;
+    }
     copy();
     del();
   };
@@ -722,10 +748,68 @@ export default function ControlPanel({
     setLayout((prev) => ({ ...prev, dbmlEditor: !prev.dbmlEditor }));
   };
   const save = () => setSaveState(State.SAVING);
+  const recentlyOpenedDiagrams = useLiveQuery(() =>
+    db.diagrams.orderBy("lastModified").reverse().limit(10).toArray(),
+  );
+
   const open = () => setModal(MODAL.OPEN);
   const saveDiagramAs = () => setModal(MODAL.SAVEAS);
   const fullscreen = useFullscreen();
-
+  const { setTasks } = useTasks();
+  const loadDiagram = async (id) => {
+    await db.diagrams
+      .get(id)
+      .then((diagram) => {
+        if (diagram) {
+          if (diagram.database) {
+            setDatabase(diagram.database);
+          } else {
+            setDatabase(DB.GENERIC);
+          }
+          setDiagramId(diagram.id);
+          setTitle(diagram.name);
+          setTables(diagram.tables);
+          setRelationships(diagram.references);
+          setAreas(diagram.areas);
+          setGistId(diagram.gistId ?? "");
+          setNotes(diagram.notes);
+          setTasks(diagram.todos ?? []);
+          setTransform({
+            pan: diagram.pan,
+            zoom: diagram.zoom,
+          });
+          setUndoStack([]);
+          setRedoStack([]);
+          if (databases[database].hasTypes) {
+            setTypes(
+              diagram.types.map((t) =>
+                t.id
+                  ? t
+                  : {
+                      ...t,
+                      id: nanoid(),
+                      fields: t.fields.map((f) =>
+                        f.id ? f : { ...f, id: nanoid() },
+                      ),
+                    },
+              ),
+            );
+          }
+          setEnums(
+            diagram.enums.map((e) => (!e.id ? { ...e, id: nanoid() } : e)) ??
+              [],
+          );
+          window.name = `d ${diagram.id}`;
+        } else {
+          window.name = "";
+          Toast.error(t("didnt_find_diagram"));
+        }
+      })
+      .catch((error) => {
+        console.log(error);
+        Toast.error(t("didnt_find_diagram"));
+      });
+  };
   const menu = {
     file: {
       new: {
@@ -741,13 +825,45 @@ export default function ControlPanel({
         function: open,
         shortcut: "Ctrl+O",
       },
+      open_recent: {
+        children: [
+          ...(recentlyOpenedDiagrams && recentlyOpenedDiagrams.length > 0
+            ? [
+                ...recentlyOpenedDiagrams.map((diagram) => ({
+                  name: diagram.name,
+                  label: DateTime.fromJSDate(new Date(diagram.lastModified))
+                    .setLocale(i18n.language)
+                    .toRelative(),
+                  function: async () => {
+                    await loadDiagram(diagram.id);
+                    save();
+                  },
+                })),
+                { divider: true },
+                {
+                  name: t("see_all"),
+                  function: () => open(),
+                },
+              ]
+            : [
+                {
+                  name: t("no_saved_diagrams"),
+                  disabled: true,
+                },
+              ]),
+        ],
+
+        function: () => {},
+      },
       save: {
         function: save,
         shortcut: "Ctrl+S",
+        disabled: layout.readOnly,
       },
       save_as: {
         function: saveDiagramAs,
         shortcut: "Ctrl+Shift+S",
+        disabled: layout.readOnly,
       },
       save_as_template: {
         function: () => {
@@ -772,6 +888,7 @@ export default function ControlPanel({
         function: () => {
           setModal(MODAL.RENAME);
         },
+        disabled: layout.readOnly,
       },
       delete_diagram: {
         warning: {
@@ -802,6 +919,7 @@ export default function ControlPanel({
           {
             function: fileImport,
             name: "JSON",
+            disabled: layout.readOnly,
           },
           {
             function: () => {
@@ -809,6 +927,7 @@ export default function ControlPanel({
               setImportFrom(IMPORT_FROM.DBML);
             },
             name: "DBML",
+            disabled: layout.readOnly,
           },
         ],
       },
@@ -821,6 +940,7 @@ export default function ControlPanel({
                 setImportDb(DB.MYSQL);
               },
               name: "MySQL",
+              disabled: layout.readOnly,
             },
             {
               function: () => {
@@ -828,6 +948,7 @@ export default function ControlPanel({
                 setImportDb(DB.POSTGRES);
               },
               name: "PostgreSQL",
+              disabled: layout.readOnly,
             },
             {
               function: () => {
@@ -835,6 +956,7 @@ export default function ControlPanel({
                 setImportDb(DB.SQLITE);
               },
               name: "SQLite",
+              disabled: layout.readOnly,
             },
             {
               function: () => {
@@ -842,6 +964,7 @@ export default function ControlPanel({
                 setImportDb(DB.MARIADB);
               },
               name: "MariaDB",
+              disabled: layout.readOnly,
             },
             {
               function: () => {
@@ -849,6 +972,7 @@ export default function ControlPanel({
                 setImportDb(DB.MSSQL);
               },
               name: "MSSQL",
+              disabled: layout.readOnly,
             },
             {
               function: () => {
@@ -857,6 +981,7 @@ export default function ControlPanel({
               },
               name: "Oracle",
               label: "Beta",
+              disabled: layout.readOnly,
             },
           ],
         }),
@@ -865,6 +990,7 @@ export default function ControlPanel({
 
           setModal(MODAL.IMPORT_SRC);
         },
+        disabled: layout.readOnly,
       },
       export_source: {
         ...(database === DB.GENERIC && {
@@ -996,7 +1122,9 @@ export default function ControlPanel({
           {
             name: "PNG",
             function: () => {
-              toPng(document.getElementById("canvas")).then(function (dataUrl) {
+              toPng(document.getElementById("canvas"), {
+                pixelRatio: pngExportPixelRatio,
+              }).then(function (dataUrl) {
                 setExportData((prev) => ({
                   ...prev,
                   data: dataUrl,
@@ -1154,10 +1282,12 @@ export default function ControlPanel({
       undo: {
         function: undo,
         shortcut: "Ctrl+Z",
+        disabled: layout.readOnly || undoStack.length === 0,
       },
       redo: {
         function: redo,
         shortcut: "Ctrl+Y",
+        disabled: layout.readOnly || redoStack.length === 0,
       },
       clear: {
         warning: {
@@ -1189,14 +1319,17 @@ export default function ControlPanel({
               );
             });
         },
+        disabled: layout.readOnly,
       },
       edit: {
         function: edit,
         shortcut: "Ctrl+E",
+        disabled: layout.readOnly,
       },
       cut: {
         function: cut,
         shortcut: "Ctrl+X",
+        disabled: layout.readOnly,
       },
       copy: {
         function: copy,
@@ -1205,14 +1338,17 @@ export default function ControlPanel({
       paste: {
         function: paste,
         shortcut: "Ctrl+V",
+        disabled: layout.readOnly,
       },
       duplicate: {
         function: duplicate,
         shortcut: "Ctrl+D",
+        disabled: layout.readOnly,
       },
       delete: {
         function: del,
         shortcut: "Del",
+        disabled: layout.readOnly,
       },
       copy_as_image: {
         function: copyAsImage,
@@ -1399,6 +1535,7 @@ export default function ControlPanel({
       },
       table_width: {
         function: () => setModal(MODAL.TABLE_WIDTH),
+        disabled: layout.readOnly,
       },
       language: {
         function: () => setModal(MODAL.LANGUAGE),
@@ -1406,12 +1543,19 @@ export default function ControlPanel({
       export_saved_data: {
         function: exportSavedData,
       },
+      clear_cache: {
+        function: () => {
+          deleteFromCache(gistId);
+          Toast.success(t("cache_cleared"));
+        },
+      },
       flush_storage: {
         warning: {
           title: t("flush_storage"),
           message: t("are_you_sure_flush_storage"),
         },
         function: async () => {
+          localStorage.removeItem(STORAGE_KEY);
           db.delete()
             .then(() => {
               Toast.success(t("storage_flushed"));
@@ -1508,6 +1652,8 @@ export default function ControlPanel({
       />
       <Sidesheet
         type={sidesheet}
+        title={title}
+        setTitle={setTitle}
         onClose={() => setSidesheet(SIDESHEET.NONE)}
       />
     </>
@@ -1598,47 +1744,46 @@ export default function ControlPanel({
           <Divider layout="vertical" margin="8px" />
           <Tooltip content={t("undo")} position="bottom">
             <button
-              className="py-1 px-2 hover-2 rounded-sm flex items-center"
+              className="py-1 px-2 hover-2 rounded-sm flex items-center disabled:opacity-50"
+              disabled={undoStack.length === 0 || layout.readOnly}
               onClick={undo}
             >
-              <IconUndo
-                size="large"
-                style={{ color: undoStack.length === 0 ? "#9598a6" : "" }}
-              />
+              <IconUndo size="large" />
             </button>
           </Tooltip>
           <Tooltip content={t("redo")} position="bottom">
             <button
-              className="py-1 px-2 hover-2 rounded-sm flex items-center"
+              className="py-1 px-2 hover-2 rounded-sm flex items-center disabled:opacity-50"
+              disabled={redoStack.length === 0 || layout.readOnly}
               onClick={redo}
             >
-              <IconRedo
-                size="large"
-                style={{ color: redoStack.length === 0 ? "#9598a6" : "" }}
-              />
+              <IconRedo size="large" />
             </button>
           </Tooltip>
           <Divider layout="vertical" margin="8px" />
           <Tooltip content={t("add_table")} position="bottom">
             <button
-              className="flex items-center py-1 px-2 hover-2 rounded-sm"
+              className="flex items-center py-1 px-2 hover-2 rounded-sm disabled:opacity-50"
               onClick={() => addTable()}
+              disabled={layout.readOnly}
             >
               <IconAddTable />
             </button>
           </Tooltip>
           <Tooltip content={t("add_area")} position="bottom">
             <button
-              className="py-1 px-2 hover-2 rounded-sm flex items-center"
+              className="py-1 px-2 hover-2 rounded-sm flex items-center disabled:opacity-50"
               onClick={() => addArea()}
+              disabled={layout.readOnly}
             >
               <IconAddArea />
             </button>
           </Tooltip>
           <Tooltip content={t("add_note")} position="bottom">
             <button
-              className="py-1 px-2 hover-2 rounded-sm flex items-center"
+              className="py-1 px-2 hover-2 rounded-sm flex items-center disabled:opacity-50"
               onClick={() => addNote()}
+              disabled={layout.readOnly}
             >
               <IconAddNote />
             </button>
@@ -1646,10 +1791,19 @@ export default function ControlPanel({
           <Divider layout="vertical" margin="8px" />
           <Tooltip content={t("save")} position="bottom">
             <button
-              className="py-1 px-2 hover-2 rounded-sm flex items-center"
+              className="py-1 px-2 hover-2 rounded-sm flex items-center disabled:opacity-50"
               onClick={save}
+              disabled={layout.readOnly}
             >
               <IconSaveStroked size="extra-large" />
+            </button>
+          </Tooltip>
+          <Tooltip content={t("versions")} position="bottom">
+            <button
+              className="py-1 px-2 hover-2 rounded-sm text-xl -mt-0.5"
+              onClick={() => setSidesheet(SIDESHEET.VERSIONS)}
+            >
+              <i className="fa-solid fa-code-branch" />{" "}
             </button>
           </Tooltip>
           <Tooltip content={t("to_do")} position="bottom">
@@ -1738,7 +1892,7 @@ export default function ControlPanel({
                 />
               )}
               <div
-                className="text-xl  me-1"
+                className="text-xl flex items-center gap-1 me-1"
                 onPointerEnter={(e) => e.isPrimary && setShowEditName(true)}
                 onPointerLeave={(e) => e.isPrimary && setShowEditName(false)}
                 onPointerDown={(e) => {
@@ -1746,14 +1900,24 @@ export default function ControlPanel({
                   // https://stackoverflow.com/a/70976017/1137077
                   e.target.releasePointerCapture(e.pointerId);
                 }}
-                onClick={() => setModal(MODAL.RENAME)}
+                onClick={!layout.readOnly && (() => setModal(MODAL.RENAME))}
               >
-                {window.name.split(" ")[0] === "t" ? "Templates/" : "Diagrams/"}
-                {title}
+                <span>
+                  {(window.name.split(" ")[0] === "t"
+                    ? "Templates/"
+                    : "Diagrams/") + title}
+                </span>
+                {version && (
+                  <Tag className="mt-1" color="blue" size="small">
+                    {version.substring(0, 7)}
+                  </Tag>
+                )}
               </div>
-              {(showEditName || modal === MODAL.RENAME) && <IconEdit />}
+              {(showEditName || modal === MODAL.RENAME) && !layout.readOnly && (
+                <IconEdit />
+              )}
             </div>
-            <div className="flex justify-between items-center">
+            <div className="flex items-center">
               <div className="flex justify-start text-md select-none me-2">
                 {Object.keys(menu).map((category) => (
                   <Dropdown
@@ -1769,29 +1933,41 @@ export default function ControlPanel({
                           if (menu[category][item].children) {
                             return (
                               <Dropdown
-                                style={{ width: "150px" }}
+                                className="min-w-36 max-w-72"
                                 key={item}
                                 position="rightTop"
                                 render={
                                   <Dropdown.Menu>
                                     {menu[category][item].children.map(
-                                      (e, i) => (
-                                        <Dropdown.Item
-                                          key={i}
-                                          onClick={e.function}
-                                          className="flex justify-between"
-                                        >
-                                          <span>{e.name}</span>
-                                          {e.label && (
-                                            <Tag
-                                              size="small"
-                                              color="light-blue"
-                                            >
-                                              {e.label}
-                                            </Tag>
-                                          )}
-                                        </Dropdown.Item>
-                                      ),
+                                      (e, i) => {
+                                        if (e.divider) {
+                                          return (
+                                            <Dropdown.Divider
+                                              key={`divider-${i}`}
+                                            />
+                                          );
+                                        }
+                                        return (
+                                          <Dropdown.Item
+                                            key={i}
+                                            onClick={e.function}
+                                            className="flex w-full items-center justify-between gap-1"
+                                            disabled={e.disabled}
+                                          >
+                                            <span className="truncate flex-1 min-w-0">
+                                              {e.name}
+                                            </span>
+                                            {e.label && (
+                                              <Tag
+                                                size="small"
+                                                className="flex-shrink-0"
+                                              >
+                                                {e.label}
+                                              </Tag>
+                                            )}
+                                          </Dropdown.Item>
+                                        );
+                                      },
                                     )}
                                   </Dropdown.Menu>
                                 }
@@ -1833,6 +2009,7 @@ export default function ControlPanel({
                           return (
                             <Dropdown.Item
                               key={index}
+                              disabled={menu[category][item].disabled}
                               onClick={menu[category][item].function}
                               style={
                                 menu[category][item].shortcut && {
@@ -1866,17 +2043,21 @@ export default function ControlPanel({
                   </Dropdown>
                 ))}
               </div>
-              <Button
-                size="small"
-                type="tertiary"
-                icon={
-                  saveState === State.LOADING || saveState === State.SAVING ? (
-                    <Spin size="small" />
-                  ) : null
-                }
-              >
-                {getState()}
-              </Button>
+              {layout.readOnly && <Tag size="small">{t("read_only")}</Tag>}
+              {!layout.readOnly && (
+                <Tag
+                  size="small"
+                  type="light"
+                  prefixIcon={
+                    saveState === State.LOADING ||
+                    saveState === State.SAVING ? (
+                      <Spin size="small" />
+                    ) : null
+                  }
+                >
+                  {getState()}
+                </Tag>
+              )}
             </div>
           </div>
         </div>

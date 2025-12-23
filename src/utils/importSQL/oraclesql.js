@@ -4,10 +4,12 @@ import { dbToTypes } from "../../data/datatypes";
 
 const affinity = {
   [DB.ORACLESQL]: new Proxy(
-    { INT: "INTEGER" },
-    { NUMERIC: "NUMBER" },
-    { DECIMAL: "NUMBER" },
-    { CHARACTER: "CHAR" },
+    {
+      INT: "INTEGER",
+      NUMERIC: "NUMBER",
+      DECIMAL: "NUMBER",
+      CHARACTER: "CHAR",
+    },
     { get: (target, prop) => (prop in target ? target[prop] : "BLOB") },
   ),
   [DB.GENERIC]: new Proxy(
@@ -25,7 +27,6 @@ export function fromOracleSQL(ast, diagramDb = DB.GENERIC) {
   const enums = [];
 
   const parseSingleStatement = (e) => {
-    console.log(e);
     if (e.operation === "create") {
       if (e.object === "table") {
         const table = {};
@@ -97,6 +98,7 @@ export function fromOracleSQL(ast, diagramDb = DB.GENERIC) {
             );
             if (!startField) return;
 
+            relationship.id = nanoid();
             relationship.startTableId = table.id;
             relationship.startFieldId = startField.id;
             relationship.endTableId = endTable.id;
@@ -128,8 +130,6 @@ export function fromOracleSQL(ast, diagramDb = DB.GENERIC) {
   };
 
   ast.forEach((e) => parseSingleStatement(e));
-
-  relationships.forEach((r, i) => (r.id = i));
 
   return { tables, relationships, enums };
 }

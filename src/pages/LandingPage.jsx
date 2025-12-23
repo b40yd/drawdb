@@ -81,7 +81,7 @@ export default function LandingPage() {
             </FadeIn>
             <div className="mt-4 font-semibold md:mt-12">
               <button
-                className="py-3 mb-4 xl:mb-0 mr-4 transition-all duration-300 bg-white border rounded-full shadow-lg px-9 border-zinc-200 hover:bg-zinc-100"
+                className="py-3 mb-4 xl:mb-0 mr-4 transition-all duration-300 bg-white border rounded-full shadow-lg px-9 border-zinc-200 hover:bg-zinc-100 cursor-pointer"
                 onClick={() =>
                   document
                     .getElementById("learn-more")
@@ -301,7 +301,7 @@ export default function LandingPage() {
       </div>
       <hr className="border-zinc-300" />
       <div className="text-center text-sm py-3">
-        &copy; 2024 <strong>drawDB</strong> - All right reserved.
+        &copy; {new Date().getFullYear()} <strong>drawDB</strong> - All rights reserved.
       </div>
     </div>
   );

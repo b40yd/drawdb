@@ -22,6 +22,8 @@ export const gridSize = 24;
 export const gridCircleRadius = 0.85;
 export const tableFieldHeight = 36;
 export const tableColorStripHeight = 7;
+export const pngExportPixelRatio = 4;
+export const minAreaSize = 120;
 
 export const Cardinality = {
   ONE_TO_ONE: "one_to_one",
@@ -98,6 +100,7 @@ export const SIDESHEET = {
   NONE: 0,
   TODO: 1,
   TIMELINE: 2,
+  VERSIONS: 3,
 };
 
 export const DB = {

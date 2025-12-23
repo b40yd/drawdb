@@ -13,7 +13,7 @@ const affinity = {
       INTEGER: "INT",
       MEDIUMINT: "INTEGER",
       BIT: "BOOLEAN",
-      "CHATACTER VARYING": "VARCHAR",
+      "CHARACTER VARYING": "VARCHAR",
     },
     { get: (target, prop) => (prop in target ? target[prop] : "BLOB") },
   ),
@@ -94,6 +94,10 @@ export function fromPostgres(ast, diagramDb = DB.GENERIC) {
                 defaultValue = "NULL";
               } else if (d.default_val.value.type === "cast") {
                 defaultValue = d.default_val.value.expr.value;
+              } else if (d.default_val.value.type === "array") {
+                defaultValue = `ARRAY[${d.default_val.value.expr_list.value
+                  .map((v) => v.value ?? v.expr.value)
+                  .join(", ")}]`;
               } else {
                 defaultValue = d.default_val.value.value.toString();
               }
@@ -148,6 +152,8 @@ export function fromPostgres(ast, diagramDb = DB.GENERIC) {
               relationship.endTableId = endTable.id;
               relationship.endFieldId = endField.id;
               relationship.startFieldId = startField.id;
+              relationship.id = nanoid();
+
               let updateConstraint = Constraint.NONE;
               let deleteConstraint = Constraint.NONE;
               d.reference_definition.on_action.forEach((c) => {
@@ -220,6 +226,7 @@ export function fromPostgres(ast, diagramDb = DB.GENERIC) {
             relationship.endFieldId = endField.id;
             relationship.updateConstraint = updateConstraint;
             relationship.deleteConstraint = deleteConstraint;
+            relationship.id = nanoid();
 
             if (startField.unique) {
               relationship.cardinality = Cardinality.ONE_TO_ONE;
@@ -228,8 +235,6 @@ export function fromPostgres(ast, diagramDb = DB.GENERIC) {
             }
 
             relationships.push(relationship);
-
-            relationships.forEach((r, i) => (r.id = i));
           }
         });
         tables.push(table);
@@ -343,6 +348,7 @@ export function fromPostgres(ast, diagramDb = DB.GENERIC) {
             relationship.updateConstraint = updateConstraint;
             relationship.deleteConstraint = deleteConstraint;
             relationship.cardinality = Cardinality.ONE_TO_ONE;
+            relationship.id = nanoid();
 
             if (startField.unique) {
               relationship.cardinality = Cardinality.ONE_TO_ONE;
@@ -351,10 +357,25 @@ export function fromPostgres(ast, diagramDb = DB.GENERIC) {
             }
 
             relationships.push(relationship);
-
-            relationships.forEach((r, i) => (r.id = i));
           }
         });
+      }
+    } else if (e.type === "comment") {
+      if (e.target.type === "table") {
+        const table = tables.find((t) => t.name === e.target?.name?.table);
+        if (table) {
+          table.comment = e.expr.expr.value;
+        }
+      } else if (e.target.type === "column") {
+        const table = tables.find((t) => t.name === e.target?.name?.table);
+        if (table) {
+          const field = table.fields.find(
+            (f) => f.name === e.target?.name?.column?.expr?.value,
+          );
+          if (field) {
+            field.comment = e.expr.expr.value;
+          }
+        }
       }
     }
   };
@@ -364,8 +385,6 @@ export function fromPostgres(ast, diagramDb = DB.GENERIC) {
   } else {
     parseSingleStatement(ast);
   }
-
-  relationships.forEach((r, i) => (r.id = i));
 
   return { tables, relationships, types, enums };
 }

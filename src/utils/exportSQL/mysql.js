@@ -24,12 +24,14 @@ export function toMySQL(diagram) {
   return `${diagram.tables
     .map(
       (table) =>
-        `CREATE TABLE \`${table.name}\` (\n${table.fields
+        `CREATE TABLE IF NOT EXISTS \`${table.name}\` (\n${table.fields
           .map(
             (field) =>
-              `\t\`${field.name}\` ${parseType(field)}${field.unsigned ? " UNSIGNED" : ""}${
-                field.notNull ? " NOT NULL" : ""
-              }${
+              `\t\`${field.name}\` ${parseType(field)}${
+                dbToTypes[DB.MYSQL][field.type]?.signed && field.unsigned
+                  ? " UNSIGNED"
+                  : ""
+              }${field.notNull ? " NOT NULL" : ""}${
                 field.increment ? " AUTO_INCREMENT" : ""
               }${field.unique ? " UNIQUE" : ""}${
                 field.default !== ""

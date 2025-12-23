@@ -6,7 +6,7 @@ import { nanoid } from "nanoid";
 const parser = new Parser();
 
 export function fromDBML(src) {
-  const ast = parser.parse(src, "dbml");
+  const ast = parser.parse(src, "dbmlv2");
 
   const tables = [];
   const enums = [];
@@ -18,7 +18,7 @@ export function fromDBML(src) {
       parsedTable.id = nanoid();
       parsedTable.name = table.name;
       parsedTable.comment = table.note ?? "";
-      parsedTable.color = "#175e7a";
+      parsedTable.color = table.headerColor ?? "#175e7a";
       parsedTable.fields = [];
       parsedTable.indices = [];
 
@@ -82,7 +82,7 @@ export function fromDBML(src) {
       relationship.endTableId = endTable.id;
       relationship.endFieldId = endField.id;
       relationship.startFieldId = startField.id;
-      relationship.id = relationships.length;
+      relationship.id = nanoid();
 
       relationship.updateConstraint = ref.onDelete
         ? ref.onDelete[0].toUpperCase() + ref.onDelete.substring(1)

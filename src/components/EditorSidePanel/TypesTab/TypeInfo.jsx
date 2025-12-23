@@ -10,19 +10,24 @@ import {
   Card,
 } from "@douyinfe/semi-ui";
 import { IconDeleteStroked, IconPlus } from "@douyinfe/semi-icons";
-import { useUndoRedo, useTypes, useDiagram } from "../../../hooks";
+import { useUndoRedo, useTypes, useDiagram, useLayout } from "../../../hooks";
 import TypeField from "./TypeField";
 import { useTranslation } from "react-i18next";
+import { nanoid } from "nanoid";
 
 export default function TypeInfo({ index, data }) {
+  const { layout } = useLayout();
   const { deleteType, updateType } = useTypes();
   const { tables, updateField } = useDiagram();
   const { setUndoStack, setRedoStack } = useUndoRedo();
   const [editField, setEditField] = useState({});
   const { t } = useTranslation();
 
+  // TODO: remove indexes, not a valid case after adding id to types
+  const typeId = data.id ?? index;
+
   return (
-    <div id={`scroll_type_${index}`}>
+    <div id={`scroll_type_${typeId}`}>
       <Collapse.Panel
         header={
           <div className="overflow-hidden text-ellipsis whitespace-nowrap">
@@ -35,11 +40,12 @@ export default function TypeInfo({ index, data }) {
           <div className="text-md font-semibold break-keep">{t("name")}: </div>
           <Input
             value={data.name}
+            readonly={layout.readOnly}
             validateStatus={data.name === "" ? "error" : "default"}
             placeholder={t("name")}
             className="ms-2"
             onChange={(value) => {
-              updateType(index, { name: value });
+              updateType(typeId, { name: value });
               tables.forEach((table) => {
                 table.fields.forEach((field) => {
                   if (field.type.toLowerCase() === data.name.toLowerCase()) {
@@ -69,7 +75,7 @@ export default function TypeInfo({ index, data }) {
                   action: Action.EDIT,
                   element: ObjectType.TYPE,
                   component: "self",
-                  tid: index,
+                  tid: typeId,
                   undo: editField,
                   redo: { name: e.target.value },
                   updatedFields,
@@ -97,10 +103,11 @@ export default function TypeInfo({ index, data }) {
                 field="comment"
                 value={data.comment}
                 autosize
+                readonly={layout.readOnly}
                 placeholder={t("comment")}
                 rows={1}
                 onChange={(value) =>
-                  updateType(index, { comment: value }, false)
+                  updateType(typeId, { comment: value }, false)
                 }
                 onFocus={(e) => setEditField({ comment: e.target.value })}
                 onBlur={(e) => {
@@ -111,7 +118,7 @@ export default function TypeInfo({ index, data }) {
                       action: Action.EDIT,
                       element: ObjectType.TYPE,
                       component: "self",
-                      tid: index,
+                      tid: typeId,
                       undo: editField,
                       redo: { comment: e.target.value },
                       message: t("edit_type", {
@@ -130,14 +137,24 @@ export default function TypeInfo({ index, data }) {
           <Col span={12}>
             <Button
               icon={<IconPlus />}
+              disabled={layout.readOnly}
               onClick={() => {
+                const newField = {
+                  name: "",
+                  type: "",
+                  id: nanoid(),
+                };
                 setUndoStack((prev) => [
                   ...prev,
                   {
                     action: Action.EDIT,
                     element: ObjectType.TYPE,
                     component: "field_add",
-                    tid: index,
+                    data: {
+                      field: newField,
+                      index: data.fields.length,
+                    },
+                    tid: typeId,
                     message: t("edit_type", {
                       typeName: data.name,
                       extra: "[add field]",
@@ -145,14 +162,8 @@ export default function TypeInfo({ index, data }) {
                   },
                 ]);
                 setRedoStack([]);
-                updateType(index, {
-                  fields: [
-                    ...data.fields,
-                    {
-                      name: "",
-                      type: "",
-                    },
-                  ],
+                updateType(typeId, {
+                  fields: [...data.fields, newField],
                 });
               }}
               block
@@ -162,10 +173,11 @@ export default function TypeInfo({ index, data }) {
           </Col>
           <Col span={12}>
             <Button
-              icon={<IconDeleteStroked />}
-              type="danger"
-              onClick={() => deleteType(index)}
               block
+              type="danger"
+              disabled={layout.readOnly}
+              icon={<IconDeleteStroked />}
+              onClick={() => deleteType(typeId)}
             >
               {t("delete")}
             </Button>

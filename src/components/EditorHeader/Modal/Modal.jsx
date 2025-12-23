@@ -1,44 +1,47 @@
 import {
-  Spin,
-  Input,
   Image,
-  Toast,
+  Input,
   Modal as SemiUIModal,
+  Spin,
+  Toast,
 } from "@douyinfe/semi-ui";
-import { DB, MODAL, STATUS } from "../../../data/constants";
-import { useState } from "react";
-import { db } from "../../../data/db";
-import {
-  useAreas,
-  useEnums,
-  useNotes,
-  useDiagram,
-  useTransform,
-  useTypes,
-  useUndoRedo,
-  useTasks,
-} from "../../../hooks";
 import { saveAs } from "file-saver";
 import { Parser } from "node-sql-parser";
 import { Parser as OracleParser } from "oracle-sql-parser";
+import { useContext, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { DB, MODAL, STATUS, State } from "../../../data/constants";
+import { databases } from "../../../data/databases";
+import { db } from "../../../data/db";
+import {
+  useAreas,
+  useDiagram,
+  useEnums,
+  useNotes,
+  useSaveState,
+  useTasks,
+  useTransform,
+  useTypes,
+  useUndoRedo,
+} from "../../../hooks";
+import { isRtl } from "../../../i18n/utils/rtl";
+import { importSQL } from "../../../utils/importSQL";
 import {
   getModalTitle,
   getModalWidth,
   getOkText,
 } from "../../../utils/modalData";
-import Rename from "./Rename";
-import Open from "./Open";
-import New from "./New";
+import CodeEditor from "../../CodeEditor";
 import ImportDiagram from "./ImportDiagram";
 import ImportSource from "./ImportSource";
-import SetTableWidth from "./SetTableWidth";
 import Language from "./Language";
+import New from "./New";
+import Open from "./Open";
+import Rename from "./Rename";
+import SetTableWidth from "./SetTableWidth";
 import Share from "./Share";
-import CodeEditor from "../../CodeEditor";
-import { useTranslation } from "react-i18next";
-import { importSQL } from "../../../utils/importSQL";
-import { databases } from "../../../data/databases";
-import { isRtl } from "../../../i18n/utils/rtl";
+import { IdContext } from "../../Workspace";
+import { nanoid } from "nanoid";
 
 const extensionToLanguage = {
   md: "markdown",
@@ -59,6 +62,7 @@ export default function Modal({
   importFrom,
 }) {
   const { t, i18n } = useTranslation();
+  const { setGistId } = useContext(IdContext);
   const { setTables, setRelationships, database, setDatabase } = useDiagram();
   const { setNotes } = useNotes();
   const { setAreas } = useAreas();
@@ -67,7 +71,11 @@ export default function Modal({
   const { setTasks } = useTasks();
   const { setTransform } = useTransform();
   const { setUndoStack, setRedoStack } = useUndoRedo();
+  const { setSaveState } = useSaveState();
   const [uncontrolledTitle, setUncontrolledTitle] = useState(title);
+  const [uncontrolledLanguage, setUncontrolledLanguage] = useState(
+    i18n.language,
+  );
   const [importSource, setImportSource] = useState({
     src: "",
     overwrite: false,
@@ -114,6 +122,7 @@ export default function Modal({
           setAreas(diagram.areas);
           setNotes(diagram.notes);
           setTasks(diagram.todos ?? []);
+          setGistId(diagram.gistId ?? "");
           setTransform({
             pan: diagram.pan,
             zoom: diagram.zoom,
@@ -121,12 +130,26 @@ export default function Modal({
           setUndoStack([]);
           setRedoStack([]);
           if (databases[database].hasTypes) {
-            setTypes(diagram.types ?? []);
+            setTypes(
+              diagram.types.map((t) =>
+                t.id
+                  ? t
+                  : {
+                      ...t,
+                      id: nanoid(),
+                      fields: t.fields.map((f) =>
+                        f.id ? f : { ...f, id: nanoid() },
+                      ),
+                    },
+              ),
+            );
           }
-          if (databases[database].hasEnums) {
-            setEnums(diagram.enums ?? []);
-          }
+          setEnums(
+            diagram.enums.map((e) => (!e.id ? { ...e, id: nanoid() } : e)) ??
+              [],
+          );
           window.name = `d ${diagram.id}`;
+          setSaveState(State.SAVING);
         } else {
           window.name = "";
           Toast.error(t("didnt_find_diagram"));
@@ -173,13 +196,11 @@ export default function Modal({
       if (importSource.overwrite) {
         setTables(diagramData.tables);
         setRelationships(diagramData.relationships);
+        if (databases[database].hasTypes) setTypes(diagramData.types ?? []);
+        if (databases[database].hasEnums) setEnums(diagramData.enums ?? []);
         setTransform((prev) => ({ ...prev, pan: { x: 0, y: 0 } }));
         setNotes([]);
         setAreas([]);
-        if (databases[database].hasTypes) setTypes(diagramData.types ?? []);
-        if (databases[database].hasEnums) setEnums(diagramData.enums ?? []);
-        setUndoStack([]);
-        setRedoStack([]);
       } else {
         setTables((prev) => [...prev, ...diagramData.tables]);
         setRelationships((prev) =>
@@ -188,11 +209,17 @@ export default function Modal({
             id: i,
           })),
         );
+        if (databases[database].hasTypes && diagramData.types.length)
+          setTypes((prev) => [...prev, ...diagramData.types]);
+        if (databases[database].hasEnums && diagramData.enums.length)
+          setEnums((prev) => [...prev, ...diagramData.enums]);
       }
+
+      setUndoStack([]);
+      setRedoStack([]);
 
       setModal(MODAL.NONE);
     } catch (e) {
-      console.log(e)
       setError({
         type: STATUS.ERROR,
         message: `Please check for syntax errors or let us know about the error.`,
@@ -247,8 +274,12 @@ export default function Modal({
         setModal(MODAL.NONE);
         return;
       case MODAL.NEW:
-        setModal(MODAL.NONE);
         createNewDiagram(selectedTemplateId);
+        setModal(MODAL.NONE);
+        return;
+      case MODAL.LANGUAGE:
+        i18n.changeLanguage(uncontrolledLanguage);
+        setModal(MODAL.NONE);
         return;
       default:
         setModal(MODAL.NONE);
@@ -340,7 +371,12 @@ export default function Modal({
       case MODAL.TABLE_WIDTH:
         return <SetTableWidth />;
       case MODAL.LANGUAGE:
-        return <Language />;
+        return (
+          <Language
+            language={uncontrolledLanguage}
+            setLanguage={setUncontrolledLanguage}
+          />
+        );
       case MODAL.SHARE:
         return <Share title={title} setModal={setModal} />;
       default:
@@ -372,6 +408,7 @@ export default function Modal({
       }}
       onCancel={() => {
         if (modal === MODAL.RENAME) setUncontrolledTitle(title);
+        if (modal === MODAL.LANGUAGE) setUncontrolledLanguage(i18n.language);
         setModal(MODAL.NONE);
       }}
       centered

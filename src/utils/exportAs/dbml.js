@@ -1,22 +1,43 @@
 import { Cardinality } from "../../data/constants";
 import { dbToTypes } from "../../data/datatypes";
 import i18n from "../../i18n/i18n";
-import { escapeQuotes, parseDefault } from "../exportSQL/shared";
+import { escapeQuotes } from "../exportSQL/shared";
+import { isFunction, isKeyword } from "../utils";
 
-function columnDefault(field, database) {
-  if (!field.default || field.default.trim() === "") {
-    return "";
-  }
+const IDENT_SAFE_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-  return `default: ${parseDefault(field, database)}`;
+function escapeIdentifier(s) {
+  return String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-function columnComment(field) {
-  if (!field.comment || field.comment.trim() === "") {
+function quoteIdentifier(name) {
+  if (name == null) return name;
+  const s = String(name);
+  return IDENT_SAFE_RE.test(s) ? s : `"${escapeIdentifier(s)}"`;
+}
+
+function parseDefaultDbml(field, database) {
+  if (isFunction(field.default)) {
+    return `\`${field.default}\``;
+  }
+
+  if (isKeyword(field.default) || !dbToTypes[database][field.type]?.hasQuotes) {
+    return field.default;
+  }
+
+  return `'${escapeQuotes(field.default)}'`;
+}
+
+function columnDefault(field, database) {
+  if (!field.default) {
     return "";
   }
 
-  return `note: '${escapeQuotes(field.comment)}'`;
+  if (typeof field.default === "string" && !field.default.trim()) {
+    return "";
+  }
+
+  return `default: ${parseDefaultDbml(field, database)}`;
 }
 
 function columnSettings(field, database) {
@@ -27,7 +48,7 @@ function columnSettings(field, database) {
   field.notNull && constraints.push("not null");
   field.unique && constraints.push("unique");
   constraints.push(columnDefault(field, database));
-  constraints.push(columnComment(field, database));
+  constraints.push(columnComment(field));
 
   constraints = constraints.filter((x) => Boolean(x));
 
@@ -61,6 +82,31 @@ function fieldSize(field, database) {
   return "";
 }
 
+function processComment(comment) {
+  if (comment.includes("\n")) {
+    return `'''${comment}'''`;
+  }
+
+  return `'${escapeQuotes(comment)}'`;
+}
+
+function columnComment(field) {
+  if (!field.comment || field.comment.trim() === "") {
+    return "";
+  }
+
+  return `note: ${processComment(field.comment)}`;
+}
+
+function processType(type) {
+  // TODO: remove after a while
+  if (type.toUpperCase() === "TIMESTAMP WITH TIME ZONE") {
+    return "timestamptz";
+  }
+
+  return type.toLowerCase();
+}
+
 export function toDBML(diagram) {
   const generateRelString = (rel) => {
     const { fields: startTableFields, name: startTableName } =
@@ -75,7 +121,7 @@ export function toDBML(diagram) {
       (f) => f.id === rel.endFieldId,
     );
 
-    return `Ref ${rel.name} {\n\t${startTableName}.${startFieldName} ${cardinality(rel)} ${endTableName}.${endFieldName} [ delete: ${rel.deleteConstraint.toLowerCase()}, update: ${rel.updateConstraint.toLowerCase()} ]\n}`;
+    return `Ref ${quoteIdentifier(rel.name)} {\n\t${quoteIdentifier(startTableName)}.${quoteIdentifier(startFieldName)} ${cardinality(rel)} ${quoteIdentifier(endTableName)}.${quoteIdentifier(endFieldName)} [ delete: ${rel.deleteConstraint.toLowerCase()}, update: ${rel.updateConstraint.toLowerCase()} ]\n}`;
   };
 
   let enumDefinitions = "";
@@ -86,7 +132,7 @@ export function toDBML(diagram) {
         (field.type === "ENUM" || field.type === "SET") &&
         Array.isArray(field.values)
       ) {
-        enumDefinitions += `enum ${field.name}_${field.values.join("_")}_t {\n\t${field.values.join("\n\t")}\n}\n\n`;
+        enumDefinitions += `enum ${quoteIdentifier(`${field.name}_${field.values.join("_")}_t`)} {\n\t${field.values.map((v) => quoteIdentifier(v)).join("\n\t")}\n}\n\n`;
       }
     }
   }
@@ -94,18 +140,18 @@ export function toDBML(diagram) {
   return `${diagram.enums
     .map(
       (en) =>
-        `enum ${en.name} {\n${en.values.map((v) => `\t${v}`).join("\n")}\n}\n\n`,
+        `enum ${quoteIdentifier(en.name)} {\n${en.values.map((v) => `\t${quoteIdentifier(v)}`).join("\n")}\n}\n\n`,
     )
     .join("\n\n")}${enumDefinitions}${diagram.tables
     .map(
       (table) =>
-        `Table ${table.name} {\n${table.fields
+        `Table ${quoteIdentifier(table.name)} [headercolor: ${table.color}] {\n${table.fields
           .map(
             (field) =>
-              `\t${field.name} ${
+              `\t${quoteIdentifier(field.name)} ${
                 field.type === "ENUM" || field.type === "SET"
-                  ? `${field.name}_${field.values.join("_")}_t`
-                  : field.type.toLowerCase()
+                  ? quoteIdentifier(`${field.name}_${field.values.join("_")}_t`)
+                  : processType(field.type)
               }${fieldSize(
                 field,
                 diagram.database,
@@ -117,16 +163,18 @@ export function toDBML(diagram) {
               table.indices
                 .map(
                   (index) =>
-                    `\t\t(${index.fields.join(", ")}) [ name: '${
+                    `\t\t(${index.fields
+                      .map((f) => quoteIdentifier(f))
+                      .join(", ")}) [ name: '${
                       index.name
-                    }'${index.unique ? " unique" : ""} ]`,
+                    }'${index.unique ? ", unique" : ""} ]`,
                 )
                 .join("\n") +
               "\n\t}"
             : ""
         }${
           table.comment && table.comment.trim() !== ""
-            ? `\n\n\tNote: '${escapeQuotes(table.comment)}'`
+            ? `\n\n\tNote: ${processComment(table.comment)}`
             : ""
         }\n}`,
     )
