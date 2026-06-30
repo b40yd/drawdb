@@ -292,6 +292,22 @@ export default function LandingPage() {
               </div>
             </a>
           </div>
+          <div className="px-30 md:px-8 text-center mt-4">
+            <a
+              className="w-full"
+              href={socials.sponsor}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <div className="bg-white border-2 border-rose-400 hover:opacity-90 transition-all duration-300 flex items-center justify-center gap-4 px-12 py-3 rounded-full">
+                <div className="relative text-2xl mt-1">
+                  <i className="fa-solid fa-heart text-rose-300" />
+                  <i className="absolute top-0.5 left-0 fa-regular fa-heart text-rose-400" />
+                </div>
+                <div className="text-xl font-semibold">Support us</div>
+              </div>
+            </a>
+          </div>
         </div>
       </div>
 
@@ -301,7 +317,8 @@ export default function LandingPage() {
       </div>
       <hr className="border-zinc-300" />
       <div className="text-center text-sm py-3">
-        &copy; {new Date().getFullYear()} <strong>drawDB</strong> - All rights reserved.
+        &copy; {new Date().getFullYear()} <strong>drawDB</strong> - All rights
+        reserved.
       </div>
     </div>
   );
@@ -332,6 +349,16 @@ const features = [
     content: (
       <div>
         Already have a schema? Import a DDL script to generate a diagram.
+      </div>
+    ),
+    footer: "",
+  },
+  {
+    title: "Generate migrations",
+    content: (
+      <div>
+        Version your diagram and generate migration scripts to update your
+        database
       </div>
     ),
     footer: "",
@@ -431,11 +458,6 @@ const features = [
         discussions.
       </div>
     ),
-    footer: "",
-  },
-  {
-    title: "Track todos",
-    content: <div>Keep track of tasks and mark them done when finished.</div>,
     footer: "",
   },
 ];

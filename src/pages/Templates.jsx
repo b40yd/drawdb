@@ -10,25 +10,19 @@ import template_screenshot from "../assets/template_screenshot.png";
 
 export default function Templates() {
   const defaultTemplates = useLiveQuery(() =>
-    db.templates.where({ custom: 0 }).toArray()
+    db.templates.where({ custom: 0 }).toArray(),
   );
 
   const customTemplates = useLiveQuery(() =>
-    db.templates.where({ custom: 1 }).toArray()
+    db.templates.where({ custom: 1 }).toArray(),
   );
 
   const deleteTemplate = async (id) => {
     await db.templates.delete(id);
   };
 
-  const editTemplate = (id) => {
-    const newWindow = window.open("/editor", "_blank");
-    newWindow.name = "t " + id;
-  };
-
   const forkTemplate = (id) => {
-    const newWindow = window.open("/editor", "_blank");
-    newWindow.name = "lt " + id;
+    window.open("/editor/templates/" + id, "_blank");
   };
 
   useEffect(() => {
@@ -71,7 +65,7 @@ export default function Templates() {
               <div className="grid xl:grid-cols-3 grid-cols-2 sm:grid-cols-1 gap-10 my-6">
                 {defaultTemplates?.map((t, i) => (
                   <div
-                    key={i}
+                    key={t.id}
                     className="bg-gray-100 hover:translate-y-[-6px] transition-all duration-300 border rounded-md"
                   >
                     <div className="h-48">
@@ -89,7 +83,7 @@ export default function Templates() {
                         </div>
                         <button
                           className="border rounded-sm px-2 py-1 bg-white hover:bg-gray-200 transition-all duration-300"
-                          onClick={() => forkTemplate(t.id)}
+                          onClick={() => forkTemplate(t.templateId)}
                         >
                           <i className="fa-solid fa-code-fork"></i>
                         </button>
@@ -108,7 +102,7 @@ export default function Templates() {
                 <div className="grid xl:grid-cols-3 grid-cols-2 sm:grid-cols-1 gap-8 my-6">
                   {customTemplates?.map((c, i) => (
                     <div
-                      key={i}
+                      key={c.id}
                       className="bg-gray-100 hover:translate-y-[-6px] transition-all duration-300 border rounded-md"
                     >
                       <div className="h-48">
@@ -122,21 +116,13 @@ export default function Templates() {
                           <div>
                             <button
                               className="me-1 border rounded-sm px-2 py-1 bg-white hover:bg-gray-200 transition-all duration-300"
-                              onClick={() => forkTemplate(c.id)}
+                              onClick={() => forkTemplate(c.templateId)}
                             >
                               <i className="fa-solid fa-code-fork"></i>
                             </button>
                           </div>
                         </div>
                         <div className="flex justify-around mt-2">
-                          <button
-                            className="w-full text-center flex justify-center items-center border rounded-sm px-2 py-1 bg-white hover:bg-gray-200 transition-all duration-300 text-blue-500"
-                            onClick={() => editTemplate(c.id)}
-                          >
-                            <i className="bi bi-pencil-fill"></i>
-                            <div className="ms-1.5 font-semibold">Edit</div>
-                          </button>
-                          <div className="border-l border-gray-300 mx-2" />
                           <button
                             className="w-full text-center flex justify-center items-center border rounded-sm px-2 py-1 bg-white hover:bg-gray-200 transition-all duration-300 text-red-500"
                             onClick={() => deleteTemplate(c.id)}
@@ -192,7 +178,8 @@ export default function Templates() {
       </div>
       <hr className="border-zinc-300 my-1" />
       <div className="text-center text-sm py-3">
-        &copy; {new Date().getFullYear()} <strong>drawDB</strong> - All rights reserved.
+        &copy; {new Date().getFullYear()} <strong>drawDB</strong> - All rights
+        reserved.
       </div>
     </div>
   );

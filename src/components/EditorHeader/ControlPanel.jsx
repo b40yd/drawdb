@@ -1,17 +1,17 @@
-import { useContext, useState } from "react";
+import { useContext, useEffect, useState } from "react";
+import { Slot, useExtensions } from "../../context/ExtensionsContext";
+import { createPortal } from "react-dom";
 import {
   IconCaretdown,
   IconChevronRight,
   IconChevronLeft,
-  IconChevronUp,
-  IconChevronDown,
   IconSaveStroked,
   IconUndo,
   IconRedo,
   IconEdit,
   IconShareStroked,
 } from "@douyinfe/semi-icons";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useMatch, useParams } from "react-router-dom";
 import icon from "../../assets/icon_dark_64.png";
 import {
   Button,
@@ -63,7 +63,7 @@ import {
   useAreas,
   useEnums,
   useFullscreen,
-  useTasks,
+  useNavigateWithParams,
 } from "../../hooks";
 import { enterFullscreen, exitFullscreen } from "../../utils/fullscreen";
 import { dataURItoBlob } from "../../utils/utils";
@@ -86,13 +86,17 @@ import { getTableHeight } from "../../utils/utils";
 import { deleteFromCache, STORAGE_KEY } from "../../utils/cache";
 import { useLiveQuery } from "dexie-react-hooks";
 import { DateTime } from "luxon";
+import ConfigureCustomTypes from "./ConfigureCustomTypes";
+
 export default function ControlPanel({
-  diagramId,
-  setDiagramId,
   title,
   setTitle,
   lastSaved,
+  setLastSaved,
+  toolbarContainer,
 }) {
+  const { id: diagramId } = useParams();
+
   const [modal, setModal] = useState(MODAL.NONE);
   const [sidesheet, setSidesheet] = useState(SIDESHEET.NONE);
   const [showEditName, setShowEditName] = useState(false);
@@ -102,6 +106,14 @@ export default function ControlPanel({
     filename: `${title}_${new Date().toISOString()}`,
     extension: "",
   });
+
+  const openExportModal = (modalType) => {
+    setExportData((prev) => ({
+      ...prev,
+      filename: `${title}_${new Date().toISOString()}`,
+    }));
+    setModal(modalType);
+  };
   const [importFrom, setImportFrom] = useState(IMPORT_FROM.JSON);
   const { saveState, setSaveState } = useSaveState();
   const { layout, setLayout } = useLayout();
@@ -120,7 +132,6 @@ export default function ControlPanel({
     deleteRelationship,
     updateRelationship,
     database,
-    setDatabase,
   } = useDiagram();
   const { enums, setEnums, deleteEnum, addEnum, updateEnum } = useEnums();
   const { types, addType, deleteType, updateType, setTypes } = useTypes();
@@ -131,10 +142,9 @@ export default function ControlPanel({
   const { transform, setTransform } = useTransform();
   const { t, i18n } = useTranslation();
   const { version, gistId, setGistId } = useContext(IdContext);
-  const navigate = useNavigate();
-
-  const invertLayout = (component) =>
-    setLayout((prev) => ({ ...prev, [component]: !prev[component] }));
+  const isTemplate = useMatch("/editor/templates/:id");
+  const navigate = useNavigateWithParams();
+  const extensions = useExtensions();
 
   const undo = () => {
     if (undoStack.length === 0) return;
@@ -250,6 +260,34 @@ export default function ControlPanel({
           updatedIndices.splice(a.data.id, 0, a.data);
           updateTable(a.tid, {
             indices: updatedIndices.map((t, i) => ({ ...t, id: i })),
+          });
+        } else if (a.component === "unique_constraint_add") {
+          const constraints = table.uniqueConstraints || [];
+          updateTable(a.tid, {
+            uniqueConstraints: constraints
+              .filter((e) => e.id !== constraints.length - 1)
+              .map((t, i) => ({ ...t, id: i })),
+          });
+        } else if (a.component === "unique_constraint") {
+          updateTable(a.tid, {
+            uniqueConstraints: (table.uniqueConstraints || []).map(
+              (constraint) =>
+                constraint.id === a.cid
+                  ? {
+                      ...constraint,
+                      ...a.undo,
+                    }
+                  : constraint,
+            ),
+          });
+        } else if (a.component === "unique_constraint_delete") {
+          const updatedConstraints = (table.uniqueConstraints || []).slice();
+          updatedConstraints.splice(a.data.id, 0, a.data);
+          updateTable(a.tid, {
+            uniqueConstraints: updatedConstraints.map((t, i) => ({
+              ...t,
+              id: i,
+            })),
           });
         } else if (a.component === "self") {
           updateTable(a.tid, a.undo);
@@ -432,6 +470,36 @@ export default function ControlPanel({
               .filter((e) => e.id !== a.data.id)
               .map((t, i) => ({ ...t, id: i })),
           });
+        } else if (a.component === "unique_constraint_add") {
+          const constraints = table.uniqueConstraints || [];
+          updateTable(a.tid, {
+            uniqueConstraints: [
+              ...constraints,
+              {
+                id: constraints.length,
+                name: `${table.name}_unique_${constraints.length}`,
+                fields: [],
+              },
+            ],
+          });
+        } else if (a.component === "unique_constraint") {
+          updateTable(a.tid, {
+            uniqueConstraints: (table.uniqueConstraints || []).map(
+              (constraint) =>
+                constraint.id === a.cid
+                  ? {
+                      ...constraint,
+                      ...a.redo,
+                    }
+                  : constraint,
+            ),
+          });
+        } else if (a.component === "unique_constraint_delete") {
+          updateTable(a.tid, {
+            uniqueConstraints: (table.uniqueConstraints || [])
+              .filter((e) => e.id !== a.data.id)
+              .map((t, i) => ({ ...t, id: i })),
+          });
         } else if (a.component === "self") {
           updateTable(a.tid, a.redo, false);
         }
@@ -528,7 +596,16 @@ export default function ControlPanel({
       minMaxXY.minX = Math.min(minMaxXY.minX, table.x);
       minMaxXY.minY = Math.min(minMaxXY.minY, table.y);
       minMaxXY.maxX = Math.max(minMaxXY.maxX, table.x + settings.tableWidth);
-      minMaxXY.maxY = Math.max(minMaxXY.maxY, table.y + getTableHeight(table));
+      minMaxXY.maxY = Math.max(
+        minMaxXY.maxY,
+        table.y +
+          getTableHeight(
+            table,
+            settings.tableWidth,
+            settings.showComments,
+            relationships,
+          ),
+      );
     });
 
     areas.forEach((area) => {
@@ -622,7 +699,7 @@ export default function ControlPanel({
     }
   };
   const del = () => {
-    if (layout.readonly) {
+    if (layout.readOnly) {
       return;
     }
     switch (selectedElement.element) {
@@ -640,7 +717,7 @@ export default function ControlPanel({
     }
   };
   const duplicate = () => {
-    if (layout.readonly) {
+    if (layout.readOnly) {
       return;
     }
     switch (selectedElement.element) {
@@ -700,7 +777,7 @@ export default function ControlPanel({
     }
   };
   const paste = () => {
-    if (layout.readonly) {
+    if (layout.readOnly) {
       return;
     }
     navigator.clipboard.readText().then((text) => {
@@ -738,7 +815,7 @@ export default function ControlPanel({
     });
   };
   const cut = () => {
-    if (layout.readonly) {
+    if (layout.readOnly) {
       return;
     }
     copy();
@@ -747,7 +824,47 @@ export default function ControlPanel({
   const toggleDBMLEditor = () => {
     setLayout((prev) => ({ ...prev, dbmlEditor: !prev.dbmlEditor }));
   };
-  const save = () => setSaveState(State.SAVING);
+  const save = async () => {
+    if (typeof extensions.cloudSave === "function") {
+      // TODO: dont have blank here have null
+      const isNew = diagramId === 'blank';
+      const newId = isNew ? crypto.randomUUID() : diagramId;
+      const diagramData = {
+        diagramId: newId,
+        database,
+        name: title,
+        gistId: gistId ?? "",
+        lastModified: new Date(),
+        tables,
+        references: relationships,
+        notes,
+        areas,
+        pan: transform.pan,
+        zoom: transform.zoom,
+        ...(databases[database].hasEnums && { enums }),
+        ...(databases[database].hasTypes && { types }),
+      };
+      try {
+        await extensions.cloudSave(diagramData, { isNew });
+        if (isNew) {
+          navigate(`/editor/diagrams/${newId}`, { replace: true });
+        }
+        setSaveState(State.SAVED);
+        if (typeof setLastSaved === "function") {
+          setLastSaved(new Date().toLocaleString());
+        }
+      } catch (err) {
+        if (err?.response?.status === 402) {
+          setSaveState(State.NONE);
+          navigate("/checkout?tier=solo_pro");
+          return;
+        }
+        setSaveState(State.ERROR);
+      }
+      return;
+    }
+    setSaveState(State.SAVING);
+  };
   const recentlyOpenedDiagrams = useLiveQuery(() =>
     db.diagrams.orderBy("lastModified").reverse().limit(10).toArray(),
   );
@@ -755,71 +872,19 @@ export default function ControlPanel({
   const open = () => setModal(MODAL.OPEN);
   const saveDiagramAs = () => setModal(MODAL.SAVEAS);
   const fullscreen = useFullscreen();
-  const { setTasks } = useTasks();
-  const loadDiagram = async (id) => {
-    await db.diagrams
-      .get(id)
-      .then((diagram) => {
-        if (diagram) {
-          if (diagram.database) {
-            setDatabase(diagram.database);
-          } else {
-            setDatabase(DB.GENERIC);
-          }
-          setDiagramId(diagram.id);
-          setTitle(diagram.name);
-          setTables(diagram.tables);
-          setRelationships(diagram.references);
-          setAreas(diagram.areas);
-          setGistId(diagram.gistId ?? "");
-          setNotes(diagram.notes);
-          setTasks(diagram.todos ?? []);
-          setTransform({
-            pan: diagram.pan,
-            zoom: diagram.zoom,
-          });
-          setUndoStack([]);
-          setRedoStack([]);
-          if (databases[database].hasTypes) {
-            setTypes(
-              diagram.types.map((t) =>
-                t.id
-                  ? t
-                  : {
-                      ...t,
-                      id: nanoid(),
-                      fields: t.fields.map((f) =>
-                        f.id ? f : { ...f, id: nanoid() },
-                      ),
-                    },
-              ),
-            );
-          }
-          setEnums(
-            diagram.enums.map((e) => (!e.id ? { ...e, id: nanoid() } : e)) ??
-              [],
-          );
-          window.name = `d ${diagram.id}`;
-        } else {
-          window.name = "";
-          Toast.error(t("didnt_find_diagram"));
-        }
-      })
-      .catch((error) => {
-        console.log(error);
-        Toast.error(t("didnt_find_diagram"));
-      });
-  };
+
+  useEffect(() => {
+    if (!fullscreen)
+      setLayout((p) => ({ ...p, header: true, sidebar: true, toolbar: true }));
+  }, [fullscreen, setLayout]);
+
   const menu = {
     file: {
       new: {
         function: () => setModal(MODAL.NEW),
       },
       new_window: {
-        function: () => {
-          const newWindow = window.open("/editor", "_blank");
-          newWindow.name = window.name;
-        },
+        function: () => window.open("/editor", "_blank"),
       },
       open: {
         function: open,
@@ -834,9 +899,8 @@ export default function ControlPanel({
                   label: DateTime.fromJSDate(new Date(diagram.lastModified))
                     .setLocale(i18n.language)
                     .toRelative(),
-                  function: async () => {
-                    await loadDiagram(diagram.id);
-                    save();
+                  function: () => {
+                    navigate(`/editor/diagrams/${diagram.diagramId}`);
                   },
                 })),
                 { divider: true },
@@ -866,8 +930,8 @@ export default function ControlPanel({
         disabled: layout.readOnly,
       },
       save_as_template: {
-        function: () => {
-          db.templates
+        function: async () => {
+          await db.templates
             .add({
               title: title,
               tables: tables,
@@ -876,6 +940,7 @@ export default function ControlPanel({
               notes: notes,
               subjectAreas: areas,
               custom: 1,
+              templateId: crypto.randomUUID(),
               ...(databases[database].hasEnums && { enums: enums }),
               ...(databases[database].hasTypes && { types: types }),
             })
@@ -896,28 +961,38 @@ export default function ControlPanel({
           message: t("are_you_sure_delete_diagram"),
         },
         function: async () => {
-          await db.diagrams
-            .delete(diagramId)
-            .then(() => {
-              setDiagramId(0);
-              setTitle("Untitled diagram");
-              setTables([]);
-              setRelationships([]);
-              setAreas([]);
-              setNotes([]);
-              setTypes([]);
-              setEnums([]);
-              setUndoStack([]);
-              setRedoStack([]);
-              setGistId("");
-            })
-            .catch(() => Toast.error(t("oops_smth_went_wrong")));
+          try {
+            if (typeof extensions.cloudDelete === "function") {
+              await extensions.cloudDelete(diagramId);
+            } else {
+              await db.diagrams
+                .where("diagramId")
+                .equals(diagramId)
+                .delete();
+            }
+            setTitle("Untitled diagram");
+            setTables([]);
+            setRelationships([]);
+            setAreas([]);
+            setNotes([]);
+            setTypes([]);
+            setEnums([]);
+            setUndoStack([]);
+            setRedoStack([]);
+            setGistId("");
+            navigate("/editor/templates/blank", { replace: true });
+          } catch {
+            Toast.error(t("oops_smth_went_wrong"));
+          }
         },
       },
       import_from: {
         children: [
           {
-            function: fileImport,
+            function: () => {
+              setModal(MODAL.IMPORT);
+              setImportFrom(IMPORT_FROM.JSON);
+            },
             name: "JSON",
             disabled: layout.readOnly,
           },
@@ -998,7 +1073,7 @@ export default function ControlPanel({
             {
               name: "MySQL",
               function: () => {
-                setModal(MODAL.CODE);
+                openExportModal(MODAL.CODE);
                 const src = jsonToMySQL({
                   tables: tables,
                   references: relationships,
@@ -1015,7 +1090,7 @@ export default function ControlPanel({
             {
               name: "PostgreSQL",
               function: () => {
-                setModal(MODAL.CODE);
+                openExportModal(MODAL.CODE);
                 const src = jsonToPostgreSQL({
                   tables: tables,
                   references: relationships,
@@ -1032,7 +1107,7 @@ export default function ControlPanel({
             {
               name: "SQLite",
               function: () => {
-                setModal(MODAL.CODE);
+                openExportModal(MODAL.CODE);
                 const src = jsonToSQLite({
                   tables: tables,
                   references: relationships,
@@ -1049,7 +1124,7 @@ export default function ControlPanel({
             {
               name: "MariaDB",
               function: () => {
-                setModal(MODAL.CODE);
+                openExportModal(MODAL.CODE);
                 const src = jsonToMariaDB({
                   tables: tables,
                   references: relationships,
@@ -1066,7 +1141,7 @@ export default function ControlPanel({
             {
               name: "MSSQL",
               function: () => {
-                setModal(MODAL.CODE);
+                openExportModal(MODAL.CODE);
                 const src = jsonToSQLServer({
                   tables: tables,
                   references: relationships,
@@ -1084,7 +1159,7 @@ export default function ControlPanel({
               label: "Beta",
               name: "Oracle",
               function: () => {
-                setModal(MODAL.CODE);
+                openExportModal(MODAL.CODE);
                 const src = jsonToOracleSQL({
                   tables: tables,
                   references: relationships,
@@ -1102,7 +1177,7 @@ export default function ControlPanel({
         }),
         function: () => {
           if (database === DB.GENERIC) return;
-          setModal(MODAL.CODE);
+          openExportModal(MODAL.CODE);
           const src = exportSQL({
             tables: tables,
             references: relationships,
@@ -1131,7 +1206,7 @@ export default function ControlPanel({
                   extension: "png",
                 }));
               });
-              setModal(MODAL.IMG);
+              openExportModal(MODAL.IMG);
             },
           },
           {
@@ -1146,7 +1221,7 @@ export default function ControlPanel({
                   }));
                 },
               );
-              setModal(MODAL.IMG);
+              openExportModal(MODAL.IMG);
             },
           },
           {
@@ -1162,13 +1237,13 @@ export default function ControlPanel({
                   }));
                 },
               );
-              setModal(MODAL.IMG);
+              openExportModal(MODAL.IMG);
             },
           },
           {
             name: "JSON",
             function: () => {
-              setModal(MODAL.CODE);
+              openExportModal(MODAL.CODE);
               const result = JSON.stringify(
                 {
                   tables: tables,
@@ -1193,7 +1268,7 @@ export default function ControlPanel({
           {
             name: "DBML",
             function: () => {
-              setModal(MODAL.CODE);
+              openExportModal(MODAL.CODE);
               const result = toDBML({
                 tables,
                 relationships,
@@ -1211,6 +1286,7 @@ export default function ControlPanel({
             name: "PDF",
             function: () => {
               const canvas = document.getElementById("canvas");
+              const filename = `${title}_${new Date().toISOString()}`;
               toJpeg(canvas).then(function (dataUrl) {
                 const doc = new jsPDF("l", "px", [
                   canvas.offsetWidth,
@@ -1224,14 +1300,14 @@ export default function ControlPanel({
                   canvas.offsetWidth,
                   canvas.offsetHeight,
                 );
-                doc.save(`${exportData.filename}.pdf`);
+                doc.save(`${filename}.pdf`);
               });
             },
           },
           {
             name: "Mermaid",
             function: () => {
-              setModal(MODAL.CODE);
+              openExportModal(MODAL.CODE);
               const result = jsonToMermaid({
                 tables: tables,
                 relationships: relationships,
@@ -1250,7 +1326,7 @@ export default function ControlPanel({
           {
             name: "Markdown",
             function: () => {
-              setModal(MODAL.CODE);
+              openExportModal(MODAL.CODE);
               const result = jsonToDocumentation({
                 tables: tables,
                 relationships: relationships,
@@ -1303,21 +1379,6 @@ export default function ControlPanel({
           setTypes([]);
           setUndoStack([]);
           setRedoStack([]);
-
-          if (!diagramId) {
-            Toast.error(t("oops_smth_went_wrong"));
-            return;
-          }
-
-          db.table("diagrams")
-            .delete(diagramId)
-            .catch((error) => {
-              Toast.error(t("oops_smth_went_wrong"));
-              console.error(
-                `Error deleting records with gistId '${diagramId}':`,
-                error,
-              );
-            });
         },
         disabled: layout.readOnly,
       },
@@ -1424,6 +1485,18 @@ export default function ControlPanel({
       reset_view: {
         function: resetView,
         shortcut: "Enter/Return",
+      },
+      show_comments: {
+        state: settings.showComments ? (
+          <i className="bi bi-toggle-on" />
+        ) : (
+          <i className="bi bi-toggle-off" />
+        ),
+        function: () =>
+          setSettings((prev) => ({
+            ...prev,
+            showComments: !prev.showComments,
+          })),
       },
       show_datatype: {
         state: settings.showDataTypes ? (
@@ -1537,6 +1610,10 @@ export default function ControlPanel({
         function: () => setModal(MODAL.TABLE_WIDTH),
         disabled: layout.readOnly,
       },
+      configure_custom_types: {
+        function: () => setModal(MODAL.CONFIG_CUSTOM_TYPES),
+        disabled: layout.readOnly,
+      },
       language: {
         function: () => setModal(MODAL.LANGUAGE),
       },
@@ -1559,7 +1636,8 @@ export default function ControlPanel({
           db.delete()
             .then(() => {
               Toast.success(t("storage_flushed"));
-              window.location.reload(false);
+              navigate("/editor", { replace: true });
+              window.location.reload();
             })
             .catch(() => {
               Toast.error(t("oops_smth_went_wrong"));
@@ -1620,24 +1698,30 @@ export default function ControlPanel({
       <div>
         {layout.header && (
           <div
-            className="flex justify-between items-center me-7"
+            className="flex justify-between items-center border-b border-color pb-2"
             style={isRtl(i18n.language) ? { direction: "rtl" } : {}}
           >
             {header()}
-            {window.name.split(" ")[0] !== "t" && (
-              <Button
-                type="primary"
-                className="!text-base me-2 !pe-6 !ps-5 !py-[18px] !rounded-md"
-                size="default"
-                icon={<IconShareStroked />}
-                onClick={() => setModal(MODAL.SHARE)}
-              >
-                {t("share")}
-              </Button>
-            )}
+            <div className="flex items-center gap-2 me-7">
+              <Slot name="header-actions-start" />
+              {!isTemplate && (
+                <Button
+                  type="primary"
+                  className="!text-base !pe-6 !ps-5 !py-[18px] !rounded-md"
+                  size="default"
+                  icon={<IconShareStroked />}
+                  onClick={() => setModal(MODAL.SHARE)}
+                >
+                  {t("share")}
+                </Button>
+              )}
+              <Slot name="header-actions-end" />
+            </div>
           </div>
         )}
-        {layout.toolbar && toolbar()}
+        {layout.toolbar &&
+          toolbarContainer &&
+          createPortal(toolbar(), toolbarContainer)}
       </div>
       <Modal
         modal={modal}
@@ -1645,7 +1729,6 @@ export default function ControlPanel({
         setExportData={setExportData}
         title={title}
         setTitle={setTitle}
-        setDiagramId={setDiagramId}
         setModal={setModal}
         importFrom={importFrom}
         importDb={importDb}
@@ -1656,18 +1739,32 @@ export default function ControlPanel({
         setTitle={setTitle}
         onClose={() => setSidesheet(SIDESHEET.NONE)}
       />
+      <ConfigureCustomTypes
+        open={modal === MODAL.CONFIG_CUSTOM_TYPES}
+        onClose={() => setModal(MODAL.NONE)}
+      />
     </>
   );
 
   function toolbar() {
     return (
       <div
-        className="py-1.5 px-5 flex justify-between items-center rounded-xl my-1 sm:mx-1 xl:mx-6 select-none overflow-hidden toolbar-theme"
+        className="py-1.5 px-3 flex items-center gap-1 rounded-xl select-none overflow-hidden toolbar-theme shadow-lg"
         style={isRtl(i18n.language) ? { direction: "rtl" } : {}}
       >
         <div className="flex justify-start items-center">
           <LayoutDropdown />
           <Divider layout="vertical" margin="8px" />
+          <Tooltip content={t("zoom_out")} position="bottom">
+            <button
+              className="py-1 px-2 hover-2 rounded-sm text-lg"
+              onClick={() =>
+                setTransform((prev) => ({ ...prev, zoom: prev.zoom / 1.2 }))
+              }
+            >
+              <i className="fa-solid fa-magnifying-glass-minus" />
+            </button>
+          </Tooltip>
           <Dropdown
             style={{ width: "240px" }}
             position={isRtl(i18n.language) ? "bottomRight" : "bottomLeft"}
@@ -1731,16 +1828,6 @@ export default function ControlPanel({
               <i className="fa-solid fa-magnifying-glass-plus" />
             </button>
           </Tooltip>
-          <Tooltip content={t("zoom_out")} position="bottom">
-            <button
-              className="py-1 px-2 hover-2 rounded-sm text-lg"
-              onClick={() =>
-                setTransform((prev) => ({ ...prev, zoom: prev.zoom / 1.2 }))
-              }
-            >
-              <i className="fa-solid fa-magnifying-glass-minus" />
-            </button>
-          </Tooltip>
           <Divider layout="vertical" margin="8px" />
           <Tooltip content={t("undo")} position="bottom">
             <button
@@ -1798,20 +1885,13 @@ export default function ControlPanel({
               <IconSaveStroked size="extra-large" />
             </button>
           </Tooltip>
+          <Divider layout="vertical" margin="8px" />
           <Tooltip content={t("versions")} position="bottom">
             <button
               className="py-1 px-2 hover-2 rounded-sm text-xl -mt-0.5"
               onClick={() => setSidesheet(SIDESHEET.VERSIONS)}
             >
-              <i className="fa-solid fa-code-branch" />{" "}
-            </button>
-          </Tooltip>
-          <Tooltip content={t("to_do")} position="bottom">
-            <button
-              className="py-1 px-2 hover-2 rounded-sm text-xl -mt-0.5"
-              onClick={() => setSidesheet(SIDESHEET.TODO)}
-            >
-              <i className="fa-regular fa-calendar-check" />
+              <i className="fa-solid fa-code-branch" />
             </button>
           </Tooltip>
           <Divider layout="vertical" margin="8px" />
@@ -1833,12 +1913,6 @@ export default function ControlPanel({
             </button>
           </Tooltip>
         </div>
-        <button
-          onClick={() => invertLayout("header")}
-          className="flex items-center"
-        >
-          {layout.header ? <IconChevronUp /> : <IconChevronDown />}
-        </button>
       </div>
     );
   }
@@ -1891,6 +1965,7 @@ export default function ControlPanel({
                   title={databases[database].name + " diagram"}
                 />
               )}
+              <Slot name="diagram-title-prefix" />
               <div
                 className="text-xl flex items-center gap-1 me-1"
                 onPointerEnter={(e) => e.isPrimary && setShowEditName(true)}
@@ -1902,11 +1977,9 @@ export default function ControlPanel({
                 }}
                 onClick={!layout.readOnly && (() => setModal(MODAL.RENAME))}
               >
-                <span>
-                  {(window.name.split(" ")[0] === "t"
-                    ? "Templates/"
-                    : "Diagrams/") + title}
-                </span>
+                <span>{(isTemplate ? "Templates" : "Diagrams")}</span>
+                <span className="select-none text-zinc-400 dark:text-zinc-500 mx-1">/</span>
+                <span>{title}</span>
                 {version && (
                   <Tag className="mt-1" color="blue" size="small">
                     {version.substring(0, 7)}
@@ -1991,7 +2064,10 @@ export default function ControlPanel({
                               </Dropdown>
                             );
                           }
-                          if (menu[category][item].warning) {
+                          if (
+                            menu[category][item].warning &&
+                            !menu[category][item].disabled
+                          ) {
                             return (
                               <Popconfirm
                                 key={index}
