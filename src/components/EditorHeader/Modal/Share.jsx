@@ -1,4 +1,16 @@
-import { Banner, Button, Input, Spin, Toast, Collapse, Tag, Space, Radio, RadioGroup, Typography } from "@douyinfe/semi-ui";
+import {
+  Banner,
+  Button,
+  Input,
+  Spin,
+  Toast,
+  Collapse,
+  Tag,
+  Space,
+  Radio,
+  RadioGroup,
+  Typography,
+} from "@douyinfe/semi-ui";
 import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { IdContext } from "../../Workspace";
@@ -10,6 +22,7 @@ import {
   useNotes,
   useTransform,
   useTypes,
+  useViews,
 } from "../../../hooks";
 import { databases } from "../../../data/databases";
 import { MODAL } from "../../../data/constants";
@@ -22,11 +35,12 @@ export default function Share({ title, setModal }) {
   const { t } = useTranslation();
   const { gistId, setGistId } = useContext(IdContext);
   const [loading, setLoading] = useState(true);
-  const { tables, relationships, database } = useDiagram();
+  const { tables, relationships, database, sqlHeader } = useDiagram();
   const { notes } = useNotes();
   const { areas } = useAreas();
   const { types } = useTypes();
   const { enums } = useEnums();
+  const { views } = useViews();
   const { transform } = useTransform();
   const [error, setError] = useState(null);
 
@@ -74,7 +88,9 @@ export default function Share({ title, setModal }) {
       relationships: relationships,
       notes: notes,
       subjectAreas: areas,
+      views: views,
       database: database,
+      ...(sqlHeader && { sqlHeader: sqlHeader }),
       ...(databases[database].hasTypes && { types: types }),
       ...(databases[database].hasEnums && { enums: enums }),
       ...(hasCustomTypes && { customTypes: usedCustomTypes }),
@@ -89,6 +105,8 @@ export default function Share({ title, setModal }) {
     title,
     enums,
     types,
+    views,
+    sqlHeader,
     transform,
   ]);
 

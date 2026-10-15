@@ -5,6 +5,7 @@ export const tableSchema = {
     name: { type: "string" },
     x: { type: "number" },
     y: { type: "number" },
+    width: { type: "number" },
     fields: {
       type: "array",
       items: {
@@ -147,6 +148,70 @@ export const enumSchema = {
   },
 };
 
+export const viewSchema = {
+  type: "object",
+  properties: {
+    id: { type: ["integer", "string"] },
+    name: { type: "string" },
+    x: { type: "number" },
+    y: { type: "number" },
+    width: { type: "number" },
+    baseTableId: { type: ["string", "integer", "null"] },
+    joins: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: ["integer", "string"] },
+          type: { type: "string" },
+          tableId: { type: ["string", "integer", "null"] },
+          on: {
+            type: ["object", "null"],
+            properties: {
+              leftTableId: { type: ["string", "integer"] },
+              leftFieldId: { type: ["string", "integer"] },
+              rightFieldId: { type: ["string", "integer"] },
+            },
+          },
+        },
+        required: ["type"],
+      },
+    },
+    columns: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: ["integer", "string"] },
+          tableId: { type: ["string", "integer", "null"] },
+          fieldId: { type: ["string", "integer", "null"] },
+          alias: { type: "string" },
+        },
+      },
+    },
+    conditions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: ["integer", "string"] },
+          connector: { type: "string" },
+          tableId: { type: ["string", "integer", "null"] },
+          fieldId: { type: ["string", "integer", "null"] },
+          operator: { type: "string" },
+          value: { type: ["string", "number"] },
+        },
+      },
+    },
+    comment: { type: "string" },
+    materialized: { type: "boolean" },
+    locked: { type: "boolean" },
+    hidden: { type: "boolean" },
+    color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
+  },
+  required: ["id", "name", "x", "y", "joins", "columns", "color"],
+};
+
 export const customTypeEntrySchema = {
   type: "object",
   properties: {
@@ -207,8 +272,13 @@ export const jsonSchema = {
       type: "array",
       items: { ...enumSchema },
     },
+    views: {
+      type: "array",
+      items: { ...viewSchema },
+    },
     title: { type: "string" },
     database: { type: "string" },
+    sqlHeader: { type: "string" },
   },
   required: ["tables", "relationships", "notes", "subjectAreas"],
   additionalProperties: true,

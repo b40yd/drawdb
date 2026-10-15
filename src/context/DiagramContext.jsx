@@ -5,6 +5,7 @@ import { Toast } from "@douyinfe/semi-ui";
 import { useTranslation } from "react-i18next";
 import { nanoid } from "nanoid";
 import { getRelationshipFields } from "../utils/utils";
+import { cascadePosition } from "../utils/rect";
 
 export const DiagramContext = createContext(null);
 
@@ -13,6 +14,7 @@ export default function DiagramContextProvider({ children }) {
   const [database, setDatabaseRaw] = useState(DB.GENERIC);
   const [tables, setTables] = useState([]);
   const [relationships, setRelationships] = useState([]);
+  const [sqlHeader, setSqlHeaderRaw] = useState("");
   const { transform } = useTransform();
   const { setUndoStack, setRedoStack } = useUndoRedo();
   const { selectedElement, setSelectedElement } = useSelect();
@@ -35,13 +37,27 @@ export default function DiagramContextProvider({ children }) {
     [emitDelta, isApplyingRemoteRef],
   );
 
+  const setSqlHeader = useCallback(
+    (next) => {
+      setSqlHeaderRaw(next);
+      if (!isApplyingRemoteRef?.current) {
+        emitDelta({
+          target: "sqlHeader",
+          action: "update",
+          entityId: "sqlHeader",
+          data: [next],
+        });
+      }
+    },
+    [emitDelta, isApplyingRemoteRef],
+  );
+
   const addTable = (data, addToHistory = true) => {
     const id = nanoid();
     const newTable = {
       id,
       name: `table_${id}`,
-      x: transform.pan.x,
-      y: transform.pan.y,
+      ...cascadePosition(transform.pan, tables),
       locked: false,
       fields: [
         {
@@ -244,7 +260,7 @@ export default function DiagramContextProvider({ children }) {
     } else {
       setRelationships((prev) => {
         const temp = prev.slice();
-        temp.splice(data.index, 0, data.relationship || data);
+        temp.splice(data.index ?? temp.length, 0, data.relationship || data);
         return temp;
       });
     }
@@ -331,6 +347,8 @@ export default function DiagramContextProvider({ children }) {
         updateRelationship,
         database,
         setDatabase,
+        sqlHeader,
+        setSqlHeader,
         tablesCount: tables.length,
         relationshipsCount: relationships.length,
       }}
